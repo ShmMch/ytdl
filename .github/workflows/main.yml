@@ -17,4 +17,5 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - run: npm install -g bats
       - run: bats -v
+      - run: npm install
       - run: node app.js
