@@ -5,6 +5,7 @@ const downloadPromise = (url) => new Promise((res, rej) => {
     const chunks = [];
     ytdl(url).on("data", (chunk) => {
         chunks.push(...chunk)
+        console.log(chunk)
     }).on("end", () => {
         res(chunks.concat());
     }).on("error", (err) => {
@@ -15,7 +16,6 @@ const downloadPromise = (url) => new Promise((res, rej) => {
 async function download() {
     try {
         const bytesStr = await downloadPromise(source.url);
-        console.log(bytesStr);
     } catch (err) {
         console.log(err);
     }
