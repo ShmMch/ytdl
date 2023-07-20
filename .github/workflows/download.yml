@@ -5,22 +5,20 @@ on:
     inputs:
       url:
         required: true
-jobs:
-  check-bats-version:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [17.x]
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: ${{ matrix.node-version }}
-      - run: npm install -g bats
-      - run: bats -v
-      - run: npm install
-      - run: URL=${{ inputs.url }} node app.js
-      - uses: actions/upload-artifact@v3
-        with:
-          name: data
-          path: data/
+runs-on: ubuntu-latest
+  strategy:
+    matrix:
+      node-version: [17.x]
+  steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+    - run: npm install
+    - run: URL=${{ inputs.url }} node app.js
+    - uses: actions/upload-artifact@v3
+      with:
+        name: data
+        path: data/
+
+    
