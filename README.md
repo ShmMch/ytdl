@@ -1,7 +1,5 @@
-# ytdl
-
 ## My youtube downloader
-#Download through github server, bypass any block on your firewall.
+# Download through github server, bypass any block on your firewall.
 
 1. Fork the repo
 2. Go to the Actions tab and choose the download workflow.
