@@ -2,6 +2,11 @@ const fs = require('fs');
 const ytdl = require('ytdl-core');
 const source = require('./source.json');
 
+const dir = './data';
+if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir);
+}
+
 const downloadPromise = (url) => new Promise((res, rej) => {
     const chunks = [];
     ytdl(url).on("data", (chunk) => {
