@@ -1,4 +1,5 @@
 const fs = require('fs');
+const core = require('@actions/core');
 const ytdl = require('ytdl-core');
 const { url } = require('./source.json');
 
@@ -9,7 +10,7 @@ if (!fs.existsSync(dir)) {
 
 async function download() {
     try {
-        ytdl(url, { quality: 18 }).pipe(fs.createWriteStream("data/download.mp4"));
+        ytdl(core.getInput('url'), { quality: 18 }).pipe(fs.createWriteStream("data/download.mp4"));
     } catch (err) {
         console.log(err);
     }
