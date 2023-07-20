@@ -9,7 +9,7 @@ if (!fs.existsSync(dir)) {
 
 async function download() {
     try {
-        ytdl(url).pipe(fs.createWriteStream("data/download.mp4"));
+        ytdl(url, { quality: 18 }).pipe(fs.createWriteStream("data/download.mp4"));
     } catch (err) {
         console.log(err);
     }
