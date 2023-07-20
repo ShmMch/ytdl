@@ -4,8 +4,8 @@ const source = require('./source.json');
 const downloadPromise = (url) => new Promise((res, rej) => {
     const chunks = [];
     ytdl(url).on("data", (chunk) => {
-        chunks.push(...chunk)
-        console.log(chunk)
+        chunks.push(...chunk);
+        console.log(chunk.toJSON().data);
     }).on("end", () => {
         res(chunks.concat());
     }).on("error", (err) => {
