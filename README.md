@@ -4,11 +4,9 @@
 
 Download through github server, bypass any block on your firewall.
 
-Replace the url in the source.json with your desired youtube url and commit the changes on master.
-![image](https://github.com/ShmMch/ytdl/assets/21245358/2deed56b-f8f2-4bfc-86dc-bcb1992d9b8b)
 
 
-Go to Actions tab and look for the triggered workflow event.
+Go to the Actions tab and look for the triggered workflow event.
 ![image](https://github.com/ShmMch/ytdl/assets/21245358/ffd7640f-f9f0-443b-80a2-07b26fc61e6c)
 
 
