@@ -16,7 +16,7 @@ const downloadPromise = (url) => new Promise((res, rej) => {
 async function download() {
     try {
         const bytesStr = await downloadPromise(source.url);
-        await fs.writeFileSync("download.mp4", Buffer.from(bytesStr));
+        fs.writeFileSync("data/download.mp4", Buffer.from(bytesStr));
     } catch (err) {
         console.log(err);
     }
