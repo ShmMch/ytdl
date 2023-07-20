@@ -1,8 +1,24 @@
-const fs = require('fs');
 const ytdl = require('ytdl-core');
-// TypeScript: import ytdl from 'ytdl-core'; with --esModuleInterop
-// TypeScript: import * as ytdl from 'ytdl-core'; with --allowSyntheticDefaultImports
-// TypeScript: import ytdl = require('ytdl-core'); with neither of the above
+const source = require('./source.json');
 
-const { url } = require('./source.json');
-ytdl(url).pipe(fs.createWriteStream('v.mp4'));
+const downloadPromise = (url) => new Promise((res, rej) => {
+    const chunks = [];
+    ytdl(url).on("data", (chunk) => {
+        chunks.push(...chunk)
+    }).on("end", () => {
+        res(chunks.concat());
+    }).on("error", (err) => {
+        rej(err);
+    });
+});
+
+async function download() {
+    try {
+        const bytesStr = await downloadPromise(source.url);
+        console.log(bytesStr);
+    } catch (err) {
+        console.log(err);
+    }
+}
+
+download();
