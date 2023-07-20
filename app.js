@@ -7,6 +7,8 @@ const dir = './data';
 if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir);
 }
+const nameToGreet = core.getInput('url');
+console.log(`Hello ${nameToGreet}!`);
 
 async function download() {
     try {
