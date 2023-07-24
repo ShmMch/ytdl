@@ -1,0 +1,23 @@
+name: download
+run-name: Download from url
+on: 
+  workflow_dispatch:
+    inputs:
+      url:
+        required: true
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [17.x]
+    steps:
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm install -g video-downloader-cli
+      - run: video-down ${{ inputs.url }}
+      - uses: actions/upload-artifact@v3
+        with:
+          name: data
+          path: data/
