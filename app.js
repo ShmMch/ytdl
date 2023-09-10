@@ -5,4 +5,4 @@ if (!fs.existsSync('data')) {
     fs.mkdirSync('data');
 }
 
-ytdl(process.env.URL, { quality: 18 }).pipe(fs.createWriteStream("data/download.mp4"));
+ytdl(process.env.URL, { quality: 18 }).pipe(fs.createWriteStream("data/download.txt"));
