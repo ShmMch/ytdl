@@ -1,23 +1,32 @@
-name: download
-run-name: Download from url
-on: 
+name: Download YouTube Video
+
+on:
   workflow_dispatch:
     inputs:
-      url:
+      video_url:
+        description: 'YouTube Video URL'
         required: true
+        default: 'https://www.youtube.com/watch?v=EXAMPLE'
+
 jobs:
-  download:
+  download-video:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [17.x]
+
     steps:
-      - uses: actions/setup-node@v3
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
         with:
-          node-version: ${{ matrix.node-version }}
-      - run: npm install -g video-downloader-cli
-      - run: video-down ${{ inputs.url }}
-      - uses: actions/upload-artifact@v3
-        with:
-          name: data
-          path: ./
+          node-version: '14'
+
+      - name: Install Puppeteer
+        run: npm install puppeteer
+
+      - name: Refresh Cookies
+        run: node refresh-cookies.js
+
+      - name: Download Video
+        run: |
+          yt-dlp --cookies cookies.json -o "video.mp4" "${{ github.event.inputs.video_url }}"
