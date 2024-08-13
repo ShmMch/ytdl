@@ -1,9 +1,8 @@
-import sys
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.keys import Keys
 from webdriver_manager.chrome import ChromeDriverManager
 import yt_dlp
 import time
@@ -27,19 +26,38 @@ def save_cookies_netscape_format(cookies, filename='cookies.txt'):
 # Initialize the WebDriver
 options = Options()
 options.add_argument("--headless")  # Run headless
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
+options.add_argument('--no-sandbox')
+options.add_argument('--disable-dev-shm-usage')
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 try:
     # Go to YouTube and log in
     driver.get('https://youtube.com')
+    
+    # Add logic to log in (if needed) or manually log in within the time provided below
 
-    # Wait for manual login (You need to manually login within the workflow)
-    time.sleep(30)  # Adjust this as necessary for login
+    # Wait for login to complete
+    time.sleep(30)  # Adjust time as needed to complete login manually
 
     # Extract cookies after logging in
     cookies = driver.get_cookies()
 
     # Print cookies to the terminal
-    print("
+    print("Extracted Cookies:", cookies)
+
+    # Save cookies in Netscape format
+    save_cookies_netscape_format(cookies)
+
+finally:
+    driver.quit()
+
+# Download the video using yt-dlp with the saved cookies
+ydl_opts = {
+    'cookiefile': 'cookies.txt',
+    'outtmpl': 'video.mp4'
+}
+
+video_url = os.getenv('VIDEO_URL')
+
+with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    ydl.download([video_url])
