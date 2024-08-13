@@ -16,22 +16,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
         with:
-          node-version: '16'
+          python-version: '3.9'  # You can choose your preferred Python version
 
-      - name: Install Puppeteer
-        run: npm install puppeteer
-
-      - name: Install yt-dlp
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y yt-dlp
+          pip install selenium yt-dlp webdriver-manager
 
-      - name: Refresh Cookies
-        run: node refresh-cookies.js
-
-      - name: Download Video
+      - name: Run script to extract cookies and download video
         run: |
-          yt-dlp --cookies cookies.txt -o "video.mp4" "${{ github.event.inputs.video_url }}"
+          python download_youtube_video.py ${{ github.event.inputs.video_url }}
