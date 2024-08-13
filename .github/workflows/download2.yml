@@ -27,4 +27,4 @@ jobs:
 
       - name: Run script to extract cookies and download video
         run: |
-          python download_youtube_video.py ${{ github.event.inputs.video_url }}
+          python download_video.py ${{ github.event.inputs.video_url }}
