@@ -9,7 +9,10 @@ const fs = require('fs');
     // Automate the login process...
 
     // Extract cookies after logging in
-    const cookies = await page.cookies();
+    let cookies = await page.cookies();
+
+    // Filter out cookies with an expires value of -1
+    cookies = cookies.filter(cookie => cookie.expires !== -1);
 
     // Convert to Netscape format
     const netscapeCookies = cookies.map(cookie => {
