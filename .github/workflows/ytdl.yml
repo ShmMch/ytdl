@@ -30,10 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -89,6 +89,9 @@ jobs:
                       if info:
                           print(f"Video title: {info.get('title', 'Unknown')}")
                           print(f"Duration: {info.get('duration', 'Unknown')} seconds")
+                          print(f"Available formats:")
+                          for f in info.get('formats', []):
+                              print(f"  - {f.get('format_id', 'N/A')}: {f.get('format_note', 'N/A')}")
                           
                           # Download the video
                           ydl.download([url])
@@ -133,8 +136,9 @@ jobs:
         run: python download.py "${{ github.event.inputs.video_url }}" "${{ github.event.inputs.quality }}" "${{ github.event.inputs.format }}"
 
       - name: Upload downloaded video
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: downloaded-video
           path: downloads/
           retention-days: 5
+          compression-level: 0  # No compression for video files
