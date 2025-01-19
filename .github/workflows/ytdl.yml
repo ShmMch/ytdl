@@ -7,10 +7,6 @@ on:
         description: 'YouTube Video URL'
         required: true
         type: string
-      cookies_content:
-        description: 'Content of cookies.txt (base64 encoded)'
-        required: true
-        type: string
       audio_only:
         description: 'Download only audio'
         required: false
@@ -36,13 +32,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install yt-dlp
 
-    - name: Create cookies file
-      run: |
-        echo "${{ inputs.cookies_content }}" | base64 -d > cookies.txt
-        echo "Created cookies.txt file"
-        echo "First line of cookies file:"
-        head -n 1 cookies.txt
-
     - name: Create download script
       run: |
         cat > download.py << 'EOL'
@@ -51,6 +40,7 @@ jobs:
         import os
         import logging
 
+        # Configure logging
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
@@ -59,8 +49,10 @@ jobs:
 
         def download_video(url, audio_only=False):
             try:
+                # Create downloads directory
                 os.makedirs('downloads', exist_ok=True)
                 
+                # Configure yt-dlp options
                 ydl_opts = {
                     'format': 'bestaudio[ext=m4a]/best' if audio_only else 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4',
                     'outtmpl': 'downloads/%(title)s.%(ext)s',
@@ -71,13 +63,19 @@ jobs:
                         'preferredquality': '192',
                     }] if audio_only else [],
                     'verbose': True,
-                    'progress_hooks': [progress_hook]
+                    'progress_hooks': [progress_hook],
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    }
                 }
 
                 logger.info(f"Starting download: {url}")
                 logger.info(f"Audio only: {audio_only}")
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # Get video info first
                     logger.info("Getting video information...")
                     info = ydl.extract_info(url, download=False)
                     
@@ -85,6 +83,7 @@ jobs:
                         logger.info(f"Title: {info.get('title', 'Unknown')}")
                         logger.info(f"Duration: {info.get('duration', 'Unknown')} seconds")
                         
+                        # Download the video
                         logger.info("Starting download...")
                         ydl.download([url])
                         return True
@@ -122,13 +121,24 @@ jobs:
             url = sys.argv[1]
             audio_only = '--audio' in sys.argv[2:]
             
-            if not os.path.exists('cookies.txt'):
-                logger.error("cookies.txt file not found!")
-                sys.exit(1)
-                
             if not download_video(url, audio_only):
                 sys.exit(1)
         EOL
+
+    - name: Check for cookies.txt
+      id: check_cookies
+      run: |
+        if [ -f "cookies.txt" ]; then
+          echo "cookies_exist=true" >> $GITHUB_OUTPUT
+        else
+          echo "cookies_exist=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Verify cookies file
+      if: steps.check_cookies.outputs.cookies_exist == 'true'
+      run: |
+        echo "Found cookies.txt file"
+        head -n 1 cookies.txt || true
 
     - name: Run download
       run: |
