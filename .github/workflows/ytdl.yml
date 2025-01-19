@@ -1,4 +1,6 @@
-name: YouTube Download Workflow
+# .github/workflows/youtube-download.yml
+
+name: YouTube Download
 
 on:
   workflow_dispatch:
@@ -35,242 +37,154 @@ jobs:
       with:
         python-version: '3.10'
     
-    - name: Install Chrome
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y wget unzip xvfb ffmpeg
         wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
         sudo apt install ./google-chrome-stable_current_amd64.deb
-        google-chrome --version
-
-    - name: Install Firefox
-      if: ${{ github.event.inputs.browser == 'firefox' }}
-      run: |
-        sudo apt-get install -y firefox
-        firefox --version
-
-    - name: Install Python dependencies
-      run: |
         python -m pip install --upgrade pip
         pip install yt-dlp browser_cookie3 pathlib
-
-    - name: Create downloader script
-      run: |
-        cat > youtube_downloader.py << 'EOL'
-import yt_dlp
-import argparse
-from pathlib import Path
-import logging
-import browser_cookie3
-import tempfile
-import http.cookiejar
-import os
-
-class VideoDownloader:
-    def __init__(self, output_dir="downloads"):
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
-        )
-        self.logger = logging.getLogger(__name__)
-
-    def _get_browser_cookies(self, browser='chrome'):
-        try:
-            cookie_extractor = {
-                'chrome': browser_cookie3.chrome,
-                'firefox': browser_cookie3.firefox,
-                'opera': browser_cookie3.opera,
-                'edge': browser_cookie3.edge
-            }
-            
-            if browser not in cookie_extractor:
-                self.logger.error(f"Unsupported browser: {browser}")
-                return None
-                
-            cookie_file = tempfile.NamedTemporaryFile(delete=False, suffix='.txt')
-            cookie_path = cookie_file.name
-            
-            # Add Netscape format header
-            with open(cookie_path, 'w', encoding='utf-8') as f:
-                f.write("# Netscape HTTP Cookie File\n")
-                f.write("# https://curl.haxx.se/rfc/cookie_spec.html\n")
-                f.write("# This is a generated file!  Do not edit.\n\n")
-            
-            try:
-                cj = cookie_extractor[browser](domain_name='youtube.com')
-                
-                with open(cookie_path, 'a', encoding='utf-8') as f:
-                    for cookie in cj:
-                        # Ensure domain starts with a dot for Netscape format
-                        domain = cookie.domain if cookie.domain.startswith('.') else '.' + cookie.domain
-                        f.write(f"{domain}\tTRUE\t{cookie.path}\t"
-                               f"{'TRUE' if cookie.secure else 'FALSE'}\t{cookie.expires}\t"
-                               f"{cookie.name}\t{cookie.value}\n")
-                
-                return cookie_path
-                
-            except Exception as e:
-                self.logger.error(f"Error extracting cookies from {browser}: {str(e)}")
-                return None
-            
-        except Exception as e:
-            self.logger.error(f"Error setting up cookie extraction: {str(e)}")
-            return None
-
-    def download_video(self, url, browser='chrome', audio=False):
-        cookie_file = None
-        try:
-            cookie_file = self._get_browser_cookies(browser)
-            
-            if not cookie_file:
-                self.logger.warning("Could not extract cookies, attempting download without them...")
-            
-            ydl_opts = {
-                'format': 'bestaudio[ext=m4a]/best' if audio else 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4',
-                'outtmpl': str(self.output_dir / '%(title)s.%(ext)s'),
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }] if audio else [],
-                'nocheckcertificate': True,
-                'no_warnings': False,
-                'verbose': True,
-                'progress_hooks': [self._progress_hook],
-                'ignoreerrors': False,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            }
-
-            if cookie_file:
-                ydl_opts['cookiefile'] = cookie_file
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                self.logger.info(f"Starting download of {url}")
-                self.logger.info("Retrieving video information...")
-                info = ydl.extract_info(url, download=False)
-                
-                if info:
-                    self.logger.info(f"Video title: {info.get('title', 'Unknown')}")
-                    self.logger.info(f"Duration: {info.get('duration', 'Unknown')} seconds")
-                    
-                    error_code = ydl.download([url])
-                    
-                    if error_code != 0:
-                        self.logger.error(f"Download failed with error code {error_code}")
-                        return False
-                        
-                    self.logger.info("Download completed successfully")
-                    return True
-                else:
-                    self.logger.error("Could not retrieve video information")
-                    return False
-
-        except Exception as e:
-            self.logger.error(f"An error occurred: {str(e)}")
-            return False
-        finally:
-            if cookie_file and os.path.exists(cookie_file):
-                try:
-                    os.unlink(cookie_file)
-                except Exception:
-                    pass
-
-    def _progress_hook(self, d):
-        if d['status'] == 'downloading':
-            try:
-                if 'total_bytes' in d:
-                    downloaded = d.get('downloaded_bytes', 0)
-                    total = d['total_bytes']
-                    percentage = (downloaded / total) * 100
-                    self.logger.info(f"Download progress: {percentage:.1f}%")
-                elif 'downloaded_bytes' in d:
-                    self.logger.info(f"Downloaded: {d['downloaded_bytes'] / 1024 / 1024:.1f} MB")
-            except Exception:
-                pass
-        elif d['status'] == 'finished':
-            self.logger.info(f"Download finished: {d['filename']}")
-        elif d['status'] == 'error':
-            self.logger.error(f"Error downloading: {d.get('error_message', 'Unknown error')}")
-EOL
-
-    - name: Create runner script
-      run: |
-        cat > run_downloader.py << 'EOL'
-import os
-import sys
-from youtube_downloader import VideoDownloader
-
-def main():
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
-    
-    downloader = VideoDownloader(output_dir='downloads')
-    
-    url = None
-    browser = 'chrome'
-    audio_only = False
-    
-    args = sys.argv[1:]
-    i = 0
-    while i < len(args):
-        if args[i].startswith('--'):
-            if args[i] == '--browser':
-                if i + 1 < len(args):
-                    browser = args[i + 1]
-                    i += 2
-                    continue
-            elif args[i] == '--audio':
-                audio_only = True
-                i += 1
-                continue
-        else:
-            url = args[i]
-            i += 1
-    
-    if not url:
-        print("Usage: python run_downloader.py [URL] [--browser chrome|firefox|opera|edge] [--audio]")
-        sys.exit(1)
-    
-    print(f"Starting download with following settings:")
-    print(f"URL: {url}")
-    print(f"Browser: {browser}")
-    print(f"Audio only: {audio_only}")
-    
-    try:
-        success = downloader.download_video(url, browser=browser, audio=audio_only)
-        
-        if success:
-            print("\nDownload completed successfully!")
-            print("Check the 'downloads' directory for your file.")
-        else:
-            print("\nDownload failed!")
-            sys.exit(1)
-            
-    except Exception as e:
-        print(f"\nAn error occurred: {str(e)}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-EOL
 
     - name: Setup virtual display
       run: |
         Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
         echo "export DISPLAY=:99" >> $GITHUB_ENV
 
+    - name: Create downloader script
+      env:
+        SCRIPT: |
+          import yt_dlp
+          from pathlib import Path
+          import logging
+          import browser_cookie3
+          import tempfile
+          import os
+          
+          class VideoDownloader:
+              def __init__(self, output_dir="downloads"):
+                  self.output_dir = Path(output_dir)
+                  self.output_dir.mkdir(parents=True, exist_ok=True)
+                  logging.basicConfig(level=logging.INFO)
+                  self.logger = logging.getLogger(__name__)
+          
+              def _get_browser_cookies(self, browser='chrome'):
+                  try:
+                      cookie_extractors = {
+                          'chrome': browser_cookie3.chrome,
+                          'firefox': browser_cookie3.firefox,
+                          'opera': browser_cookie3.opera,
+                          'edge': browser_cookie3.edge
+                      }
+                      
+                      if browser not in cookie_extractors:
+                          self.logger.error(f"Unsupported browser: {browser}")
+                          return None
+                      
+                      cookie_file = tempfile.NamedTemporaryFile(delete=False, suffix='.txt')
+                      cookie_path = cookie_file.name
+                      
+                      cj = cookie_extractors[browser](domain_name='youtube.com')
+                      with open(cookie_path, 'w', encoding='utf-8') as f:
+                          for cookie in cj:
+                              f.write(f"{cookie.domain}\tTRUE\t{cookie.path}\t"
+                                    f"{'TRUE' if cookie.secure else 'FALSE'}\t{cookie.expires}\t"
+                                    f"{cookie.name}\t{cookie.value}\n")
+                      return cookie_path
+                  except Exception as e:
+                      self.logger.error(f"Error extracting cookies: {str(e)}")
+                      return None
+          
+              def download_video(self, url, browser='chrome', audio=False):
+                  cookie_file = None
+                  try:
+                      cookie_file = self._get_browser_cookies(browser)
+                      
+                      ydl_opts = {
+                          'format': 'bestaudio[ext=m4a]/best' if audio else 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4',
+                          'outtmpl': str(self.output_dir / '%(title)s.%(ext)s'),
+                          'postprocessors': [{
+                              'key': 'FFmpegExtractAudio',
+                              'preferredcodec': 'mp3',
+                              'preferredquality': '192',
+                          }] if audio else [],
+                          'verbose': True,
+                          'progress_hooks': [self._progress_hook]
+                      }
+                      
+                      if cookie_file:
+                          ydl_opts['cookiefile'] = cookie_file
+                      
+                      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                          self.logger.info(f"Starting download of {url}")
+                          info = ydl.extract_info(url, download=True)
+                          return True
+                          
+                  except Exception as e:
+                      self.logger.error(f"Error: {str(e)}")
+                      return False
+                  finally:
+                      if cookie_file and os.path.exists(cookie_file):
+                          try:
+                              os.unlink(cookie_file)
+                          except:
+                              pass
+          
+              def _progress_hook(self, d):
+                  if d['status'] == 'downloading':
+                      try:
+                          if 'total_bytes' in d:
+                              downloaded = d.get('downloaded_bytes', 0)
+                              total = d['total_bytes']
+                              percentage = (downloaded / total) * 100
+                              self.logger.info(f"Progress: {percentage:.1f}%")
+                          elif 'downloaded_bytes' in d:
+                              mb = d['downloaded_bytes'] / 1024 / 1024
+                              self.logger.info(f"Downloaded: {mb:.1f} MB")
+                      except:
+                          pass
+                  elif d['status'] == 'finished':
+                      self.logger.info(f"Finished downloading")
+      run: echo "$SCRIPT" > youtube_downloader.py
+
+    - name: Create runner script
+      env:
+        SCRIPT: |
+          import sys
+          from youtube_downloader import VideoDownloader
+          
+          def main():
+              url = sys.argv[1]
+              browser = 'chrome'
+              audio = False
+              
+              args = sys.argv[2:]
+              i = 0
+              while i < len(args):
+                  if args[i] == '--browser':
+                      browser = args[i + 1]
+                      i += 2
+                  elif args[i] == '--audio':
+                      audio = True
+                      i += 1
+                  else:
+                      i += 1
+              
+              downloader = VideoDownloader()
+              if not downloader.download_video(url, browser=browser, audio=audio):
+                  sys.exit(1)
+          
+          if __name__ == '__main__':
+              main()
+      run: echo "$SCRIPT" > run_downloader.py
+
     - name: Run downloader
       env:
         DISPLAY: :99
       run: |
         python run_downloader.py "${{ github.event.inputs.video_url }}" \
-        --browser "${{ github.event.inputs.browser }}" \
-        ${{ github.event.inputs.audio_only == 'true' && '--audio' || '' }}
+          --browser "${{ github.event.inputs.browser }}" \
+          ${{ github.event.inputs.audio_only == 'true' && '--audio' || '' }}
 
     - name: Upload downloads
       uses: actions/upload-artifact@v4.3.1
