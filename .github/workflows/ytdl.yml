@@ -29,75 +29,88 @@ jobs:
       with:
         python-version: '3.10'
     
-    - name: Install Chrome
+    - name: Install Chrome and dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y wget unzip xvfb ffmpeg
-        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
-        sudo apt-get update
-        sudo apt-get install -y google-chrome-stable
+        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        sudo apt install ./google-chrome-stable_current_amd64.deb
         google-chrome --version
+
+    - name: Setup ChromeDriver
+      run: |
+        CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3 | cut -d '.' -f 1)
+        echo "Chrome version: $CHROME_VERSION"
+        wget -N "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_VERSION.0.6099.0/linux64/chromedriver-linux64.zip"
+        unzip chromedriver-linux64.zip
+        chmod +x chromedriver-linux64/chromedriver
+        sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+        chromedriver --version
 
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install selenium undetected-chromedriver yt-dlp requests
+        pip install selenium requests yt-dlp webdriver_manager
 
     - name: Create browser script
       run: |
         cat > browser_handler.py << 'EOL'
-        import undetected_chromedriver as uc
+        from selenium import webdriver
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.common.by import By
-        import json
         import time
         import os
-        from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+        from selenium.common.exceptions import TimeoutException
+
+        def setup_driver():
+            chrome_options = Options()
+            chrome_options.add_argument('--headless=new')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--disable-extensions')
+            chrome_options.add_argument('--disable-ipv6')
+            chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+            chrome_options.add_argument('--start-maximized')
+            
+            service = Service(executable_path='/usr/local/bin/chromedriver')
+            
+            return webdriver.Chrome(service=service, options=chrome_options)
 
         def get_cookies():
-            options = uc.ChromeOptions()
-            options.add_argument('--no-sandbox')
-            options.add_argument('--headless=new')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--window-size=1920,1080')
-            options.add_argument('--remote-debugging-port=9222')
-            
-            caps = DesiredCapabilities.CHROME.copy()
-            caps['goog:loggingPrefs'] = {'browser': 'ALL'}
-            
+            driver = None
             try:
                 print("Starting Chrome...")
-                driver = uc.Chrome(
-                    options=options,
-                    desired_capabilities=caps,
-                    version_main=120  # Specify the Chrome version
-                )
+                driver = setup_driver()
+                print("Chrome started successfully")
+                
                 driver.set_page_load_timeout(30)
                 driver.implicitly_wait(10)
                 
                 print("Opening YouTube...")
                 driver.get("https://www.youtube.com")
-                time.sleep(3)
                 
-                print("Checking page load...")
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                # Wait for page to load
+                WebDriverWait(driver, 20).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "ytd-app"))
                 )
+                
+                print("Page loaded, waiting for dynamic content...")
+                time.sleep(5)
                 
                 print("Getting cookies...")
                 cookies = driver.get_cookies()
                 
-                print("Browser logs:", driver.get_log('browser'))
-                
                 # Convert cookies to yt-dlp format
                 cookie_string = ""
                 for cookie in cookies:
-                    cookie_string += f".youtube.com\tTRUE\t{cookie['path']}\t"
+                    cookie_string += f".youtube.com\tTRUE\t{cookie.get('path', '/')}\t"
                     cookie_string += f"{'TRUE' if cookie.get('secure', False) else 'FALSE'}\t"
-                    cookie_string += f"{cookie.get('expiry', 0)}\t{cookie['name']}\t{cookie['value']}\n"
+                    cookie_string += f"{cookie.get('expiry', '0')}\t{cookie['name']}\t{cookie['value']}\n"
                 
                 with open('cookies.txt', 'w', encoding='utf-8') as f:
                     f.write(cookie_string)
@@ -107,15 +120,17 @@ jobs:
                 
             except Exception as e:
                 print(f"Error getting cookies: {str(e)}")
+                if driver:
+                    print("Page source:", driver.page_source[:500])
+                    print("Current URL:", driver.current_url)
                 return False
+                
             finally:
-                try:
-                    if 'driver' in locals():
-                        print("Browser capabilities:", driver.capabilities)
-                        print("Closing browser...")
+                if driver:
+                    try:
                         driver.quit()
-                except Exception as e:
-                    print(f"Error closing browser: {str(e)}")
+                    except Exception as e:
+                        print(f"Error closing browser: {str(e)}")
 
         if __name__ == "__main__":
             max_retries = 3
@@ -128,7 +143,7 @@ jobs:
                     exit(0)
                 retry_count += 1
                 if retry_count < max_retries:
-                    print(f"Retrying in 5 seconds...")
+                    print("Retrying in 5 seconds...")
                     time.sleep(5)
             
             print("Failed to get cookies after all retries")
@@ -166,8 +181,10 @@ jobs:
                 'progress_hooks': [progress_hook],
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Connection': 'keep-alive',
                     'Upgrade-Insecure-Requests': '1'
                 }
             }
