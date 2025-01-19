@@ -29,138 +29,14 @@ jobs:
       with:
         python-version: '3.10'
     
-    - name: Install Chrome and dependencies
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y wget unzip xvfb ffmpeg
         wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
         sudo apt install ./google-chrome-stable_current_amd64.deb
-        google-chrome --version
-
-    - name: Install Python dependencies
-      run: |
         python -m pip install --upgrade pip
-        pip install selenium requests yt-dlp webdriver_manager
-
-    - name: Create browser script
-      run: |
-        cat > browser_handler.py << 'EOL'
-        from selenium import webdriver
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        from webdriver_manager.chrome import ChromeDriverManager
-        from selenium.webdriver.chrome.service import Service as ChromeService
-        import time
-        import os
-
-        def setup_driver():
-            chrome_options = Options()
-            chrome_options.add_argument('--headless=new')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--disable-dev-shm-usage')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--disable-extensions')
-            chrome_options.add_argument('--window-size=1920,1080')
-            chrome_options.add_argument('--start-maximized')
-            
-            service = ChromeService(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            return driver
-
-        def get_cookies():
-            driver = None
-            try:
-                print("Starting Chrome...")
-                driver = setup_driver()
-                print("Chrome started successfully")
-                
-                driver.set_page_load_timeout(30)
-                driver.implicitly_wait(10)
-                
-                print("Opening YouTube...")
-                driver.get("https://www.youtube.com")
-                
-                # Wait for page to load
-                WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-                
-                print("Page loaded, waiting for dynamic content...")
-                time.sleep(5)
-                
-                print("Getting cookies...")
-                cookies = driver.get_cookies()
-                
-                # Convert cookies to Netscape format
-                cookie_string = "# Netscape HTTP Cookie File\n"
-                cookie_string += "# https://curl.haxx.se/rfc/cookie_spec.html\n"
-                cookie_string += "# This is a generated file!  Do not edit.\n\n"
-                
-                for cookie in cookies:
-                    domain = cookie.get('domain', '.youtube.com')
-                    if not domain.startswith('.'):
-                        domain = '.' + domain
-                    
-                    # Handle expiry time
-                    expiry = cookie.get('expiry', int(time.time() + 3600*24*365))
-                    if isinstance(expiry, float):
-                        expiry = int(expiry)
-                    
-                    cookie_string += (
-                        f"{domain}\t"             # domain (with leading dot)
-                        f"TRUE\t"                 # include subdomains
-                        f"{cookie.get('path', '/')}\t"  # path
-                        f"{'TRUE' if cookie.get('secure', False) else 'FALSE'}\t"  # secure
-                        f"{expiry}\t"             # expiry
-                        f"{cookie['name']}\t"     # name
-                        f"{cookie['value']}\n"    # value
-                    )
-                
-                with open('cookies.txt', 'w', encoding='utf-8') as f:
-                    f.write(cookie_string)
-                
-                print(f"Saved {len(cookies)} cookies")
-                print(f"Current URL: {driver.current_url}")
-                print(f"Page source preview: {driver.page_source[:500]}")
-                return True
-                
-            except Exception as e:
-                print(f"Error getting cookies: {str(e)}")
-                if driver:
-                    try:
-                        print("Current URL:", driver.current_url)
-                        print("Page source preview:", driver.page_source[:500])
-                    except:
-                        pass
-                return False
-                
-            finally:
-                if driver:
-                    try:
-                        driver.quit()
-                    except Exception as e:
-                        print(f"Error closing browser: {str(e)}")
-
-        if __name__ == "__main__":
-            max_retries = 3
-            retry_count = 0
-            
-            while retry_count < max_retries:
-                print(f"\nAttempt {retry_count + 1} of {max_retries}")
-                if get_cookies():
-                    print("Successfully got cookies!")
-                    exit(0)
-                retry_count += 1
-                if retry_count < max_retries:
-                    print("Retrying in 5 seconds...")
-                    time.sleep(5)
-            
-            print("Failed to get cookies after all retries")
-            exit(1)
-        EOL
+        pip install yt-dlp selenium webdriver_manager requests
 
     - name: Create download script
       run: |
@@ -172,97 +48,69 @@ jobs:
         from datetime import datetime
 
         def download_video(url, quality='best'):
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            # Modified template to handle playlists
-            output_template = f'downloads/%(playlist_title)s/%(title)s_{timestamp}.%(ext)s'
-            if 'playlist' in url.lower() or 'list=' in url:
-                print("Detected playlist URL, configuring for playlist download...")
-            
-            if quality == 'best':
-                format_str = 'bestvideo+bestaudio/best'
-            else:
-                format_str = f'bestvideo[height<={quality[:-1]}]+bestaudio/best[height<={quality[:-1]}]'
-
-            ydl_opts = {
-                'format': format_str,
-                'outtmpl': output_template,
-                'cookiefile': 'cookies.txt',
-                'merge_output_format': 'mp4',
-                'extract_flat': True,
-                'force_generic_extractor': False,
-                'ignoreerrors': True,
-                'postprocessors': [{
-                    'key': 'FFmpegVideoConvertor',
-                    'preferedformat': 'mp4',
-                }],
-                'verbose': True,
-                'progress_hooks': [progress_hook],
-                'extractor_args': {
-                    'youtube': {
-                        'skip': ['dash', 'hls'],
-                        'player_skip': ['js', 'configs', 'webpage']
-                    }
-                },
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1'
-                }
-            }
-
             try:
+                ydl_opts = {
+                    'format': 'best' if quality == 'best' else f'bestvideo[height<={quality[:-1]}]+bestaudio/best',
+                    'outtmpl': 'downloads/%(title)s.%(ext)s',
+                    'noplaylist': True,  # Disable playlist handling
+                    'extract_flat': False,
+                    'writeinfojson': True,
+                    'quiet': False,
+                    'no_warnings': False,
+                    'verbose': True,
+                    'merge_output_format': 'mp4',
+                    'postprocessors': [{
+                        'key': 'FFmpegVideoConvertor',
+                        'preferedformat': 'mp4',
+                    }],
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                }
+
                 os.makedirs('downloads', exist_ok=True)
                 
+                print(f"Starting download of {url}")
+                print(f"Using options: {json.dumps(ydl_opts, indent=2)}")
+                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    print(f"Starting download of {url}")
                     info = ydl.extract_info(url, download=False)
                     
                     if info:
+                        print(f"Video information retrieved successfully")
                         print(f"Title: {info.get('title', 'Unknown')}")
-                        print(f"Duration: {info.get('duration', 'Unknown')}s")
+                        print(f"Duration: {info.get('duration', 'Unknown')} seconds")
                         
-                        formats = [{
-                            'format_id': f.get('format_id'),
-                            'ext': f.get('ext'),
-                            'resolution': f.get('format_note'),
-                            'filesize': f.get('filesize'),
-                            'vcodec': f.get('vcodec'),
-                            'acodec': f.get('acodec')
-                        } for f in info.get('formats', [])]
+                        # Save format information
+                        if 'formats' in info:
+                            formats = [{
+                                'format_id': f.get('format_id'),
+                                'ext': f.get('ext'),
+                                'resolution': f.get('format_note'),
+                                'filesize': f.get('filesize'),
+                                'vcodec': f.get('vcodec'),
+                                'acodec': f.get('acodec')
+                            } for f in info['formats']]
+                            
+                            with open('formats.json', 'w') as f:
+                                json.dump(formats, f, indent=2)
                         
-                        with open('formats.json', 'w') as f:
-                            json.dump(formats, f, indent=2)
-                        
+                        print("Starting actual download...")
                         ydl.download([url])
                         return True
-                    return False
+                    else:
+                        print("No video information retrieved")
+                        return False
                     
+            except yt_dlp.utils.DownloadError as e:
+                print(f"Download error: {str(e)}")
+                return False
             except Exception as e:
-                print(f"Error: {str(e)}")
+                print(f"Unexpected error: {str(e)}")
+                print(f"Error type: {type(e)}")
                 return False
 
-        def progress_hook(d):
-            if d['status'] == 'downloading':
-                try:
-                    if 'total_bytes' in d:
-                        downloaded = d.get('downloaded_bytes', 0)
-                        total = d['total_bytes']
-                        percentage = (downloaded / total) * 100
-                        print(f"Progress: {percentage:.1f}%")
-                    elif 'downloaded_bytes' in d:
-                        mb = d['downloaded_bytes'] / 1024 / 1024
-                        print(f"Downloaded: {mb:.1f}MB")
-                except:
-                    pass
-            elif d['status'] == 'finished':
-                print(f"Finished downloading: {d['filename']}")
-            elif d['status'] == 'error':
-                print(f"Error: {d.get('error_message', 'Unknown error')}")
-
-        if __name__ == "__main__":
+        def main():
             if len(sys.argv) < 2:
                 print("Usage: python download.py <url> [quality]")
                 sys.exit(1)
@@ -270,25 +118,20 @@ jobs:
             url = sys.argv[1]
             quality = sys.argv[2] if len(sys.argv) > 2 else 'best'
             
+            print(f"URL: {url}")
+            print(f"Quality: {quality}")
+            
             success = download_video(url, quality)
             if not success:
                 sys.exit(1)
+
+        if __name__ == "__main__":
+            main()
         EOL
 
-    - name: Setup virtual display
+    - name: Install latest yt-dlp
       run: |
-        Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
-        echo "export DISPLAY=:99" >> $GITHUB_ENV
-
-    - name: Set Chrome path
-      run: |
-        echo "CHROME_PATH=/usr/bin/google-chrome" >> $GITHUB_ENV
-
-    - name: Get cookies
-      env:
-        DISPLAY: :99
-      run: |
-        python browser_handler.py
+        pip install --upgrade yt-dlp
 
     - name: Run download
       run: |
