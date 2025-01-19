@@ -1,0 +1,140 @@
+name: YouTube Download Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'YouTube Video URL'
+        required: true
+        type: string
+      quality:
+        description: 'Video Quality'
+        required: false
+        default: 'best'
+        type: choice
+        options:
+          - best
+          - 720p
+          - 1080p
+      format:
+        description: 'Output Format'
+        required: false
+        default: 'mp4'
+        type: choice
+        options:
+          - mp4
+          - mkv
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yt-dlp
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Create download script
+        run: |
+          cat > download.py << 'EOL'
+          import yt_dlp
+          import sys
+          import os
+          from datetime import datetime
+
+          def download_video(url, quality='best', output_format='mp4'):
+              # Configure output template
+              timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+              output_template = f'downloads/%(title)s_{timestamp}.%(ext)s'
+              
+              # Set format based on quality
+              if quality == 'best':
+                  format_str = f'bestvideo+bestaudio/best'
+              else:
+                  format_str = f'bestvideo[height<={quality[:-1]}]+bestaudio/best[height<={quality[:-1]}]'
+
+              ydl_opts = {
+                  'format': format_str,
+                  'outtmpl': output_template,
+                  'merge_output_format': output_format,
+                  'postprocessors': [{
+                      'key': 'FFmpegVideoConvertor',
+                      'preferedformat': output_format,
+                  }],
+                  'verbose': True,
+                  'progress_hooks': [progress_hook],
+                  'http_headers': {
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                  }
+              }
+
+              try:
+                  with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                      # Create downloads directory if it doesn't exist
+                      os.makedirs('downloads', exist_ok=True)
+                      
+                      # Extract video info first
+                      print("Extracting video information...")
+                      info = ydl.extract_info(url, download=False)
+                      
+                      if info:
+                          print(f"Video title: {info.get('title', 'Unknown')}")
+                          print(f"Duration: {info.get('duration', 'Unknown')} seconds")
+                          
+                          # Download the video
+                          ydl.download([url])
+                          return True
+                      return False
+              except Exception as e:
+                  print(f"Error downloading video: {str(e)}")
+                  return False
+
+          def progress_hook(d):
+              if d['status'] == 'downloading':
+                  try:
+                      if 'total_bytes' in d:
+                          downloaded = d.get('downloaded_bytes', 0)
+                          total = d['total_bytes']
+                          percentage = (downloaded / total) * 100
+                          print(f"Download progress: {percentage:.1f}%")
+                      elif 'downloaded_bytes' in d:
+                          print(f"Downloaded: {d['downloaded_bytes'] / 1024 / 1024:.1f} MB")
+                  except Exception:
+                      pass
+              elif d['status'] == 'finished':
+                  print(f"Download finished: {d['filename']}")
+              elif d['status'] == 'error':
+                  print(f"Error downloading: {d.get('error_message', 'Unknown error')}")
+
+          if __name__ == "__main__":
+              if len(sys.argv) < 2:
+                  print("Usage: python download.py <url> [quality] [format]")
+                  sys.exit(1)
+                  
+              url = sys.argv[1]
+              quality = sys.argv[2] if len(sys.argv) > 2 else 'best'
+              output_format = sys.argv[3] if len(sys.argv) > 3 else 'mp4'
+              
+              success = download_video(url, quality, output_format)
+              if not success:
+                  sys.exit(1)
+          EOL
+
+      - name: Run download script
+        run: python download.py "${{ github.event.inputs.video_url }}" "${{ github.event.inputs.quality }}" "${{ github.event.inputs.format }}"
+
+      - name: Upload downloaded video
+        uses: actions/upload-artifact@v2
+        with:
+          name: downloaded-video
+          path: downloads/
+          retention-days: 5
