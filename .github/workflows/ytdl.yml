@@ -29,77 +29,73 @@ jobs:
       with:
         python-version: '3.10'
     
-    - name: Install Firefox
+    - name: Install Chrome
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget gpg
-        wget -q -O - "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x0ab215679c571d1c8325275b9bdb3d89ce49ec21" | sudo gpg --dearmor -o /usr/share/keyrings/mozilla-firefox.gpg
-        echo "deb [signed-by=/usr/share/keyrings/mozilla-firefox.gpg] https://ppa.launchpadcontent.net/mozillateam/ppa/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/mozilla-firefox.list
+        sudo apt-get install -y wget unzip xvfb ffmpeg
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
         sudo apt-get update
-        sudo apt-get install -y firefox ffmpeg xvfb
-        firefox --version
+        sudo apt-get install -y google-chrome-stable
+        google-chrome --version
 
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install selenium webdriver_manager yt-dlp requests
-
-    - name: Install geckodriver
-      run: |
-        GECKO_VERSION=$(curl -s https://api.github.com/repos/mozilla/geckodriver/releases/latest | grep -oP '"tag_name": "\K[^"]+')
-        wget https://github.com/mozilla/geckodriver/releases/download/${GECKO_VERSION}/geckodriver-${GECKO_VERSION}-linux64.tar.gz
-        tar -xvzf geckodriver-${GECKO_VERSION}-linux64.tar.gz
-        chmod +x geckodriver
-        sudo mv geckodriver /usr/local/bin/
-        echo "Geckodriver version:"
-        geckodriver --version
+        pip install selenium undetected-chromedriver yt-dlp requests
 
     - name: Create browser script
       run: |
         cat > browser_handler.py << 'EOL'
-        from selenium import webdriver
-        from selenium.webdriver.firefox.service import Service
-        from selenium.webdriver.firefox.options import Options
+        import undetected_chromedriver as uc
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.webdriver.common.by import By
         import json
         import time
         import os
+        from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 
-        def setup_driver():
-            options = Options()
-            options.add_argument('--headless')
+        def get_cookies():
+            options = uc.ChromeOptions()
             options.add_argument('--no-sandbox')
+            options.add_argument('--headless=new')
+            options.add_argument('--disable-gpu')
             options.add_argument('--disable-dev-shm-usage')
-            options.set_preference("media.volume_scale", "0.0")
-            options.binary_location = '/usr/bin/firefox'
+            options.add_argument('--window-size=1920,1080')
+            options.add_argument('--remote-debugging-port=9222')
             
-            service = Service('/usr/local/bin/geckodriver')
-            driver = webdriver.Firefox(
-                options=options,
-                service=service
-            )
-            return driver
-
-        def get_cookies(url):
-            driver = None
+            caps = DesiredCapabilities.CHROME.copy()
+            caps['goog:loggingPrefs'] = {'browser': 'ALL'}
+            
             try:
-                print("Setting up driver...")
-                driver = setup_driver()
-                print("Driver setup complete")
+                print("Starting Chrome...")
+                driver = uc.Chrome(
+                    options=options,
+                    desired_capabilities=caps,
+                    version_main=120  # Specify the Chrome version
+                )
+                driver.set_page_load_timeout(30)
+                driver.implicitly_wait(10)
                 
                 print("Opening YouTube...")
                 driver.get("https://www.youtube.com")
-                time.sleep(5)  # Let the page load
+                time.sleep(3)
+                
+                print("Checking page load...")
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
                 
                 print("Getting cookies...")
                 cookies = driver.get_cookies()
                 
+                print("Browser logs:", driver.get_log('browser'))
+                
                 # Convert cookies to yt-dlp format
                 cookie_string = ""
                 for cookie in cookies:
-                    cookie_string += f"{cookie['domain']}\tTRUE\t{cookie['path']}\t"
+                    cookie_string += f".youtube.com\tTRUE\t{cookie['path']}\t"
                     cookie_string += f"{'TRUE' if cookie.get('secure', False) else 'FALSE'}\t"
                     cookie_string += f"{cookie.get('expiry', 0)}\t{cookie['name']}\t{cookie['value']}\n"
                 
@@ -107,22 +103,36 @@ jobs:
                     f.write(cookie_string)
                 
                 print(f"Saved {len(cookies)} cookies")
-                print("Browser info:", driver.capabilities)
                 return True
                 
             except Exception as e:
                 print(f"Error getting cookies: {str(e)}")
-                if driver:
-                    print("Browser info:", driver.capabilities)
                 return False
             finally:
-                if driver:
-                    driver.quit()
+                try:
+                    if 'driver' in locals():
+                        print("Browser capabilities:", driver.capabilities)
+                        print("Closing browser...")
+                        driver.quit()
+                except Exception as e:
+                    print(f"Error closing browser: {str(e)}")
 
         if __name__ == "__main__":
-            success = get_cookies("https://www.youtube.com")
-            if not success:
-                exit(1)
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                print(f"\nAttempt {retry_count + 1} of {max_retries}")
+                if get_cookies():
+                    print("Successfully got cookies!")
+                    exit(0)
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"Retrying in 5 seconds...")
+                    time.sleep(5)
+            
+            print("Failed to get cookies after all retries")
+            exit(1)
         EOL
 
     - name: Create download script
@@ -155,9 +165,9 @@ jobs:
                 'verbose': True,
                 'progress_hooks': [progress_hook],
                 'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
                     'Upgrade-Insecure-Requests': '1'
                 }
             }
@@ -173,7 +183,6 @@ jobs:
                         print(f"Title: {info.get('title', 'Unknown')}")
                         print(f"Duration: {info.get('duration', 'Unknown')}s")
                         
-                        # Save format info
                         formats = [{
                             'format_id': f.get('format_id'),
                             'ext': f.get('ext'),
@@ -233,7 +242,6 @@ jobs:
     - name: Get cookies
       env:
         DISPLAY: :99
-        MOZ_HEADLESS: 1
       run: |
         python browser_handler.py
 
