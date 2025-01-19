@@ -37,18 +37,6 @@ jobs:
         sudo apt install ./google-chrome-stable_current_amd64.deb
         google-chrome --version
 
-    - name: Setup ChromeDriver
-      run: |
-        CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3)
-        echo "Chrome version: $CHROME_VERSION"
-        CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION%%.*}")
-        echo "ChromeDriver version: $CHROMEDRIVER_VERSION"
-        wget -N "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
-        unzip chromedriver_linux64.zip
-        chmod +x chromedriver
-        sudo mv chromedriver /usr/local/bin/
-        chromedriver --version
-
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
@@ -63,9 +51,10 @@ jobs:
         from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
+        from webdriver_manager.chrome import ChromeDriverManager
+        from selenium.webdriver.chrome.service import Service as ChromeService
         import time
         import os
-        from selenium.common.exceptions import TimeoutException
 
         def setup_driver():
             chrome_options = Options()
@@ -73,15 +62,13 @@ jobs:
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('--disable-extensions')
-            chrome_options.add_argument('--disable-ipv6')
-            chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+            chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('--start-maximized')
             
-            service = Service(executable_path='/usr/local/bin/chromedriver')
-            
-            return webdriver.Chrome(service=service, options=chrome_options)
+            service = ChromeService(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            return driver
 
         def get_cookies():
             driver = None
@@ -98,7 +85,7 @@ jobs:
                 
                 # Wait for page to load
                 WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "ytd-app"))
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
                 )
                 
                 print("Page loaded, waiting for dynamic content...")
@@ -118,13 +105,18 @@ jobs:
                     f.write(cookie_string)
                 
                 print(f"Saved {len(cookies)} cookies")
+                print(f"Current URL: {driver.current_url}")
+                print(f"Page source preview: {driver.page_source[:500]}")
                 return True
                 
             except Exception as e:
                 print(f"Error getting cookies: {str(e)}")
                 if driver:
-                    print("Page source:", driver.page_source[:500])
-                    print("Current URL:", driver.current_url)
+                    try:
+                        print("Current URL:", driver.current_url)
+                        print("Page source preview:", driver.page_source[:500])
+                    except:
+                        pass
                 return False
                 
             finally:
@@ -257,6 +249,10 @@ jobs:
       run: |
         Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
         echo "export DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Set Chrome path
+      run: |
+        echo "CHROME_PATH=/usr/bin/google-chrome" >> $GITHUB_ENV
 
     - name: Get cookies
       env:
