@@ -36,7 +36,93 @@ jobs:
         wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
         sudo apt install ./google-chrome-stable_current_amd64.deb
         python -m pip install --upgrade pip
-        pip install yt-dlp selenium webdriver_manager requests
+        pip install selenium undetected-chromedriver yt-dlp requests
+
+    - name: Create browser script
+      run: |
+        cat > browser_handler.py << 'EOL'
+        import undetected_chromedriver as uc
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        import time
+        import os
+        import json
+
+        def get_cookies():
+            options = uc.ChromeOptions()
+            options.add_argument('--no-sandbox')
+            options.add_argument('--headless=new')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument('--start-maximized')
+            
+            try:
+                print("Starting undetected-chromedriver...")
+                driver = uc.Chrome(
+                    options=options,
+                    version_main=120  # Specify Chrome version
+                )
+                
+                print("Opening YouTube...")
+                driver.get('https://www.youtube.com')
+                time.sleep(5)  # Let page load fully
+                
+                print("Getting cookies...")
+                cookies = driver.get_cookies()
+                
+                print("Converting cookies...")
+                # Write cookies in Netscape format
+                with open('cookies.txt', 'w', encoding='utf-8') as f:
+                    f.write('# Netscape HTTP Cookie File\n')
+                    f.write('# https://curl.haxx.se/rfc/cookie_spec.html\n')
+                    f.write('# This is a generated file!  Do not edit.\n\n')
+                    
+                    for cookie in cookies:
+                        secure = str(cookie.get('secure', False)).upper()
+                        domain = cookie.get('domain', '')
+                        if not domain.startswith('.'):
+                            domain = '.' + domain.lstrip('.')
+                            
+                        expiry = cookie.get('expiry', int(time.time() + 3600*24*365))
+                        
+                        f.write(f"{domain}\t")
+                        f.write("TRUE\t")  # Include subdomains
+                        f.write(f"{cookie.get('path', '/')}\t")
+                        f.write(f"{secure}\t")
+                        f.write(f"{expiry}\t")
+                        f.write(f"{cookie.get('name')}\t")
+                        f.write(f"{cookie.get('value')}\n")
+                
+                print(f"Saved {len(cookies)} cookies")
+                return True
+                
+            except Exception as e:
+                print(f"Error in getting cookies: {str(e)}")
+                if 'driver' in locals():
+                    print("Page source:", driver.page_source[:500])
+                return False
+                
+            finally:
+                if 'driver' in locals():
+                    try:
+                        driver.quit()
+                    except:
+                        pass
+
+        if __name__ == "__main__":
+            success = False
+            for attempt in range(3):
+                print(f"\nAttempt {attempt + 1} of 3")
+                if get_cookies():
+                    success = True
+                    break
+                time.sleep(5)
+            
+            if not success:
+                print("Failed to get cookies after all attempts")
+                exit(1)
+        EOL
 
     - name: Create download script
       run: |
@@ -52,10 +138,7 @@ jobs:
                 ydl_opts = {
                     'format': 'best' if quality == 'best' else f'bestvideo[height<={quality[:-1]}]+bestaudio/best',
                     'outtmpl': 'downloads/%(title)s.%(ext)s',
-                    'noplaylist': True,  # Disable playlist handling
-                    'extract_flat': False,
-                    'writeinfojson': True,
-                    'quiet': False,
+                    'cookiefile': 'cookies.txt',
                     'no_warnings': False,
                     'verbose': True,
                     'merge_output_format': 'mp4',
@@ -64,7 +147,9 @@ jobs:
                         'preferedformat': 'mp4',
                     }],
                     'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                     }
                 }
 
@@ -74,6 +159,7 @@ jobs:
                 print(f"Using options: {json.dumps(ydl_opts, indent=2)}")
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    print("Extracting video info...")
                     info = ydl.extract_info(url, download=False)
                     
                     if info:
@@ -129,9 +215,16 @@ jobs:
             main()
         EOL
 
-    - name: Install latest yt-dlp
+    - name: Setup virtual display
       run: |
-        pip install --upgrade yt-dlp
+        Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+        echo "export DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Get cookies
+      env:
+        DISPLAY: :99
+      run: |
+        python browser_handler.py
 
     - name: Run download
       run: |
