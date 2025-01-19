@@ -173,7 +173,10 @@ jobs:
 
         def download_video(url, quality='best'):
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_template = f'downloads/%(title)s_{timestamp}.%(ext)s'
+            # Modified template to handle playlists
+            output_template = f'downloads/%(playlist_title)s/%(title)s_{timestamp}.%(ext)s'
+            if 'playlist' in url.lower() or 'list=' in url:
+                print("Detected playlist URL, configuring for playlist download...")
             
             if quality == 'best':
                 format_str = 'bestvideo+bestaudio/best'
@@ -185,12 +188,21 @@ jobs:
                 'outtmpl': output_template,
                 'cookiefile': 'cookies.txt',
                 'merge_output_format': 'mp4',
+                'extract_flat': True,
+                'force_generic_extractor': False,
+                'ignoreerrors': True,
                 'postprocessors': [{
                     'key': 'FFmpegVideoConvertor',
                     'preferedformat': 'mp4',
                 }],
                 'verbose': True,
                 'progress_hooks': [progress_hook],
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['dash', 'hls'],
+                        'player_skip': ['js', 'configs', 'webpage']
+                    }
+                },
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
