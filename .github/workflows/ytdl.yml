@@ -94,12 +94,30 @@ jobs:
                 print("Getting cookies...")
                 cookies = driver.get_cookies()
                 
-                # Convert cookies to yt-dlp format
-                cookie_string = ""
+                # Convert cookies to Netscape format
+                cookie_string = "# Netscape HTTP Cookie File\n"
+                cookie_string += "# https://curl.haxx.se/rfc/cookie_spec.html\n"
+                cookie_string += "# This is a generated file!  Do not edit.\n\n"
+                
                 for cookie in cookies:
-                    cookie_string += f".youtube.com\tTRUE\t{cookie.get('path', '/')}\t"
-                    cookie_string += f"{'TRUE' if cookie.get('secure', False) else 'FALSE'}\t"
-                    cookie_string += f"{cookie.get('expiry', '0')}\t{cookie['name']}\t{cookie['value']}\n"
+                    domain = cookie.get('domain', '.youtube.com')
+                    if not domain.startswith('.'):
+                        domain = '.' + domain
+                    
+                    # Handle expiry time
+                    expiry = cookie.get('expiry', int(time.time() + 3600*24*365))
+                    if isinstance(expiry, float):
+                        expiry = int(expiry)
+                    
+                    cookie_string += (
+                        f"{domain}\t"             # domain (with leading dot)
+                        f"TRUE\t"                 # include subdomains
+                        f"{cookie.get('path', '/')}\t"  # path
+                        f"{'TRUE' if cookie.get('secure', False) else 'FALSE'}\t"  # secure
+                        f"{expiry}\t"             # expiry
+                        f"{cookie['name']}\t"     # name
+                        f"{cookie['value']}\n"    # value
+                    )
                 
                 with open('cookies.txt', 'w', encoding='utf-8') as f:
                     f.write(cookie_string)
