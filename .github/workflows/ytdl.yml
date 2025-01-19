@@ -34,7 +34,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install selenium webdriver_manager yt-dlp requests
         sudo apt-get update
-        sudo apt-get install -y firefox ffmpeg xvfb
+        sudo apt-get install -y firefox-esr ffmpeg xvfb
+
+    - name: Install geckodriver
+      run: |
+        wget https://github.com/mozilla/geckodriver/releases/download/v0.33.0/geckodriver-v0.33.0-linux64.tar.gz
+        tar -xvzf geckodriver-v0.33.0-linux64.tar.gz
+        chmod +x geckodriver
+        sudo mv geckodriver /usr/local/bin/
+        echo "Geckodriver version:"
+        geckodriver --version
 
     - name: Create browser script
       run: |
@@ -55,8 +64,9 @@ jobs:
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
             options.set_preference("media.volume_scale", "0.0")
+            options.binary_location = '/usr/bin/firefox-esr'
             
-            service = Service()
+            service = Service('/usr/local/bin/geckodriver')
             driver = webdriver.Firefox(
                 options=options,
                 service=service
@@ -84,10 +94,12 @@ jobs:
                     f.write(cookie_string)
                 
                 print(f"Saved {len(cookies)} cookies")
+                print("Driver capabilities:", driver.capabilities)
                 return True
                 
             except Exception as e:
                 print(f"Error getting cookies: {str(e)}")
+                print("Driver capabilities:", driver.capabilities)
                 return False
             finally:
                 driver.quit()
@@ -204,6 +216,8 @@ jobs:
         echo "export DISPLAY=:99" >> $GITHUB_ENV
 
     - name: Get cookies
+      env:
+        DISPLAY: :99
       run: |
         python browser_handler.py
 
