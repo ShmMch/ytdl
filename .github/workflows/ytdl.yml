@@ -1,3 +1,5 @@
+# .github/workflows/transcribe.yml
+
 name: YouTube Transcription
 
 on:
@@ -17,22 +19,33 @@ jobs:
     timeout-minutes: 360  # 6 hour timeout
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
-    - name: Install FFmpeg
+    - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y ffmpeg
 
-    - name: Install dependencies
+    - name: Create requirements.txt
+      run: |
+        echo "yt-dlp==2023.12.30" >> requirements.txt
+        echo "SpeechRecognition==3.10.0" >> requirements.txt
+        echo "pydub==0.25.1" >> requirements.txt
+
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+
+    - name: Create directories
+      run: |
+        mkdir -p downloads/temp
 
     - name: Run transcription
       env:
@@ -42,7 +55,11 @@ jobs:
         python youtube_transcriber.py "$VIDEO_URL" "$LANGUAGE"
 
     - name: Upload transcript
-      uses: actions/upload-artifact@v2
+      if: success()
+      uses: actions/upload-artifact@v3
       with:
         name: transcript
-        path: downloads/*.txt
+        path: |
+          downloads/*.txt
+          youtube_transcription.log
+        if-no-files-found: error
