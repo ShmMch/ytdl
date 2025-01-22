@@ -5,6 +5,7 @@ import sys
 import logging
 import tempfile
 import time
+import random
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
@@ -82,106 +83,130 @@ def safe_filename(filename: str) -> str:
     return "".join(char for char in filename 
                   if char.isalnum() or char in "._- ").rstrip()
 
+class ProxyRotator:
+    def __init__(self):
+        # Add your proxy list here if you have them
+        self.proxy_list = [
+            # Example proxies - replace with real ones if you have them
+            # 'http://proxy1.example.com:8080',
+            # 'http://proxy2.example.com:8080',
+        ]
+        
+    def get_proxy(self):
+        """Get a random proxy from the list"""
+        if self.proxy_list:
+            return random.choice(self.proxy_list)
+        return None
+
 class VideoDownloader:
     def __init__(self, config: Config):
         self.config = config
         self.logger = setup_logging()
+        self.proxy_rotator = ProxyRotator()
 
-    def _progress_hook(self, d: Dict[str, Any]):
-        """Handle download progress updates"""
-        if d['status'] == 'downloading':
-            try:
-                if 'total_bytes' in d:
-                    downloaded = d.get('downloaded_bytes', 0)
-                    total = d['total_bytes']
-                    percentage = (downloaded / total) * 100
-                    self.logger.info(f"Download progress: {percentage:.1f}%")
-                elif 'downloaded_bytes' in d:
-                    self.logger.info(f"Downloaded: {d['downloaded_bytes'] / 1024 / 1024:.1f} MB")
-            except Exception:
-                pass
-        elif d['status'] == 'finished':
-            self.logger.info(f"Download finished: {d['filename']}")
-        elif d['status'] == 'error':
-            self.logger.error(f"Error downloading: {d.get('error_message', 'Unknown error')}")
+    def _get_download_options(self, output_template: str) -> dict:
+        """Get download options with randomized user agent"""
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0 Safari/537.36'
+        ]
+
+        ydl_opts = {
+            'outtmpl': output_template,
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'wav',
+                'preferredquality': '192',
+            }],
+            'socket_timeout': 30,
+            'retries': 10,
+            'writethumbnail': False,
+            'quiet': False,
+            'no_warnings': True,
+            'progress_hooks': [self._progress_hook],
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'noplaylist': True,
+            'extract_flat': False,
+            'extractor_retries': 5,
+            'file_access_retries': 5,
+            'fragment_retries': 10,
+            'retry_sleep_functions': {'http': lambda n: 5 * (n + 1)},
+            'http_headers': {
+                'User-Agent': random.choice(user_agents),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Accept-Encoding': 'gzip,deflate',
+                'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.7',
+                'Keep-Alive': '115',
+                'Connection': 'keep-alive',
+            }
+        }
+
+        # Add proxy if available
+        proxy = self.proxy_rotator.get_proxy()
+        if proxy:
+            ydl_opts['proxy'] = proxy
+
+        return ydl_opts
 
     def download_video(self, url: str) -> Optional[str]:
-        """Download video and extract audio"""
+        """Download video and extract audio with bot check bypass attempts"""
         try:
             validate_url(url)
             
-            # Create a temporary filename
             temp_filename = f'video_{int(time.time())}'
             output_template = os.path.join(self.config.OUTPUT_DIR, temp_filename)
-            
-            ydl_opts = {
-                'outtmpl': output_template,
-                'format': 'bestaudio/best',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'wav',
-                    'preferredquality': '192',
-                }],
-                'writethumbnail': False,
-                'no_warnings': False,
-                'quiet': False,
-                'progress_hooks': [self._progress_hook],
-                'ignoreerrors': False,
-                'noplaylist': True,
-                'nocheckcertificate': True,  # Skip SSL certificate verification
-                'extract_flat': False,
-                'force_generic_extractor': False,
-                'hls_prefer_native': True,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            }
 
-            # Try to update yt-dlp first
-            try:
-                with yt_dlp.YoutubeDL() as ydl:
-                    ydl.download(['-U'])
-            except Exception as e:
-                self.logger.warning(f"Could not update yt-dlp: {e}")
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                self.logger.info(f"Starting download of {url}")
+            for attempt in range(3):  # Try 3 times with different approaches
                 try:
-                    # First try to extract info without downloading
-                    info = ydl.extract_info(url, download=False)
-                    if not info:
-                        raise TranscriptionError("Could not retrieve video information")
+                    # Get fresh options for each attempt
+                    ydl_opts = self._get_download_options(output_template)
                     
-                    # If info extraction successful, proceed with download
-                    info = ydl.extract_info(url, download=True)
-                    self.logger.info(f"Video title: {info.get('title', 'Unknown')}")
-                    
-                    # Look for the WAV file
-                    expected_wav_file = f"{output_template}.wav"
-                    if os.path.exists(expected_wav_file):
-                        self.logger.info(f"Found audio file: {expected_wav_file}")
-                        return expected_wav_file
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        self.logger.info(f"Download attempt {attempt + 1} for {url}")
+                        
+                        # Try to get video info first
+                        info = ydl.extract_info(url, download=False)
+                        if not info:
+                            raise TranscriptionError("Could not retrieve video information")
+                        
+                        # If successful, proceed with download
+                        info = ydl.extract_info(url, download=True)
+                        self.logger.info(f"Video title: {info.get('title', 'Unknown')}")
+                        
+                        # Look for the downloaded WAV file
+                        expected_wav_file = f"{output_template}.wav"
+                        if os.path.exists(expected_wav_file):
+                            return expected_wav_file
 
-                    # Fallback: look for any WAV file
-                    wav_files = [f for f in os.listdir(self.config.OUTPUT_DIR) 
-                            if f.endswith('.wav')]
-                    if wav_files:
-                        latest_wav = max(wav_files, 
-                                    key=lambda x: os.path.getctime(
-                                        os.path.join(self.config.OUTPUT_DIR, x)))
-                        full_path = os.path.join(self.config.OUTPUT_DIR, latest_wav)
-                        self.logger.info(f"Found alternative audio file: {full_path}")
-                        return full_path
+                        # Fallback: search for any WAV file
+                        wav_files = [f for f in os.listdir(self.config.OUTPUT_DIR) 
+                                   if f.endswith('.wav')]
+                        if wav_files:
+                            latest_wav = max(wav_files, 
+                                           key=lambda x: os.path.getctime(
+                                               os.path.join(self.config.OUTPUT_DIR, x)))
+                            return os.path.join(self.config.OUTPUT_DIR, latest_wav)
 
                 except yt_dlp.utils.DownloadError as e:
-                    self.logger.error(f"YouTube download error: {str(e)}")
-                    if "Video unavailable" in str(e):
-                        self.logger.error("The video is not available or is private")
-                    elif "Sign in" in str(e):
-                        self.logger.error("This video requires authentication")
-                    return None
+                    error_message = str(e).lower()
+                    self.logger.warning(f"Download attempt {attempt + 1} failed: {e}")
+                    
+                    if attempt < 2:  # Don't sleep on last attempt
+                        if "sign in to confirm you're not a bot" in error_message:
+                            time.sleep((attempt + 1) * 5)
+                        elif "rate limit" in error_message:
+                            time.sleep((attempt + 1) * 10)
+                        else:
+                            time.sleep(attempt + 1)
+                    
+                    if attempt == 2:  # Last attempt failed
+                        raise
 
-            self.logger.error("Could not find downloaded WAV file")
             return None
 
         except Exception as e:
