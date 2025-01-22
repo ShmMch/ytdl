@@ -123,12 +123,12 @@ class VideoDownloader:
                     'preferredquality': '192',
                 }],
                 'writethumbnail': False,
-                'nocheckcertificate': True,
                 'no_warnings': False,
                 'quiet': False,
                 'progress_hooks': [self._progress_hook],
                 'ignoreerrors': False,
                 'noplaylist': True,
+                'nocheckcertificate': True,  # Skip SSL certificate verification
                 'extract_flat': False,
                 'force_generic_extractor': False,
                 'hls_prefer_native': True,
@@ -136,6 +136,13 @@ class VideoDownloader:
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
             }
+
+            # Try to update yt-dlp first
+            try:
+                with yt_dlp.YoutubeDL() as ydl:
+                    ydl.download(['-U'])
+            except Exception as e:
+                self.logger.warning(f"Could not update yt-dlp: {e}")
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 self.logger.info(f"Starting download of {url}")
@@ -181,6 +188,7 @@ class VideoDownloader:
             self.logger.error(f"Download error: {str(e)}")
             self.logger.error(traceback.format_exc())
             return None
+   
 class YouTubeTranscriber:
     def __init__(self, config: Config):
         self.config = config

@@ -28,14 +28,22 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y ffmpeg
+        sudo apt-get install -y ffmpeg ca-certificates
+        sudo update-ca-certificates
         ffmpeg -version
 
     - name: Install Python dependencies
       run: |
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip certifi
         pip install yt-dlp==2023.12.30 SpeechRecognition==3.10.0 pydub==0.25.1
-        pip list
+        python -m pip install --upgrade yt-dlp
+        yt-dlp --version
+
+    - name: Update certificates
+      run: |
+        python -m pip install --upgrade certifi
+        echo "Python SSL certificate paths:"
+        python -c "import ssl; print(ssl.get_default_verify_paths())"
 
     - name: Create directories
       run: |
@@ -46,6 +54,7 @@ jobs:
       env:
         VIDEO_URL: ${{ github.event.inputs.video_url }}
         LANGUAGE: ${{ github.event.inputs.language }}
+        PYTHONHTTPSVERIFY: "0"  # Disable SSL verification if needed
       run: |
         echo "Starting transcription process..."
         echo "Python version:"

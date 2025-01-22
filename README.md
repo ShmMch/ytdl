@@ -1,9 +1,25 @@
-# My youtube downloader
-## Download through github server, bypass any block on your firewall.
+# YouTube Video Transcriber
 
-1. Fork the repo
-2. Go to the Actions tab and choose the "download" workflow.
-3. Click "Run workflow", you will have to insert a youtube url. The workflow should start run.
-4. After its finish, you can see the run details on top of the runs list, double click on it.
-5. An artifact with the video has been created and shown on the bottom of the page, click on it for download to your pc.
+Downloads YouTube videos and creates transcriptions. Works locally or via GitHub Actions.
 
+## Quick Start
+
+1. Install dependencies:
+```bash
+pip install yt-dlp==2023.12.30 SpeechRecognition==3.10.0 pydub==0.25.1
+# Install FFmpeg for your OS
+```
+
+2. Run:
+```bash
+python youtube_transcriber.py "YOUTUBE_URL" "LANGUAGE_CODE"
+# Example:
+python youtube_transcriber.py "https://youtube.com/watch?v=xxx" "he-IL"
+```
+
+## GitHub Actions
+
+1. Fork repo
+2. Go to Actions tab
+3. Run workflow with YouTube URL
+4. Download transcript from artifacts
