@@ -104,6 +104,24 @@ class VideoDownloader:
         self.logger = setup_logging()
         self.proxy_rotator = ProxyRotator()
 
+    def _progress_hook(self, d: Dict[str, Any]):
+        """Handle download progress updates"""
+        if d['status'] == 'downloading':
+            try:
+                if 'total_bytes' in d:
+                    downloaded = d.get('downloaded_bytes', 0)
+                    total = d['total_bytes']
+                    percentage = (downloaded / total) * 100
+                    self.logger.info(f"Download progress: {percentage:.1f}%")
+                elif 'downloaded_bytes' in d:
+                    self.logger.info(f"Downloaded: {d['downloaded_bytes'] / 1024 / 1024:.1f} MB")
+            except Exception:
+                pass
+        elif d['status'] == 'finished':
+            self.logger.info(f"Download finished: {d['filename']}")
+        elif d['status'] == 'error':
+            self.logger.error(f"Error downloading: {d.get('error_message', 'Unknown error')}")
+
     def _get_download_options(self, output_template: str) -> dict:
         """Get download options with randomized user agent"""
         user_agents = [
