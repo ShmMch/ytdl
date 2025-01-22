@@ -125,49 +125,62 @@ class VideoDownloader:
                 'writethumbnail': False,
                 'nocheckcertificate': True,
                 'no_warnings': False,
-                'verbose': True,
+                'quiet': False,
                 'progress_hooks': [self._progress_hook],
                 'ignoreerrors': False,
                 'noplaylist': True,
+                'extract_flat': False,
+                'force_generic_extractor': False,
+                'hls_prefer_native': True,
                 'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 self.logger.info(f"Starting download of {url}")
-                info = ydl.extract_info(url, download=True)
-                
-                if not info:
-                    raise TranscriptionError("Could not retrieve video information")
+                try:
+                    # First try to extract info without downloading
+                    info = ydl.extract_info(url, download=False)
+                    if not info:
+                        raise TranscriptionError("Could not retrieve video information")
+                    
+                    # If info extraction successful, proceed with download
+                    info = ydl.extract_info(url, download=True)
+                    self.logger.info(f"Video title: {info.get('title', 'Unknown')}")
+                    
+                    # Look for the WAV file
+                    expected_wav_file = f"{output_template}.wav"
+                    if os.path.exists(expected_wav_file):
+                        self.logger.info(f"Found audio file: {expected_wav_file}")
+                        return expected_wav_file
 
-                self.logger.info(f"Video title: {info.get('title', 'Unknown')}")
-                
-                # Look for the WAV file
-                expected_wav_file = f"{output_template}.wav"
-                if os.path.exists(expected_wav_file):
-                    self.logger.info(f"Found audio file: {expected_wav_file}")
-                    return expected_wav_file
+                    # Fallback: look for any WAV file
+                    wav_files = [f for f in os.listdir(self.config.OUTPUT_DIR) 
+                            if f.endswith('.wav')]
+                    if wav_files:
+                        latest_wav = max(wav_files, 
+                                    key=lambda x: os.path.getctime(
+                                        os.path.join(self.config.OUTPUT_DIR, x)))
+                        full_path = os.path.join(self.config.OUTPUT_DIR, latest_wav)
+                        self.logger.info(f"Found alternative audio file: {full_path}")
+                        return full_path
 
-                # Fallback: look for any WAV file
-                wav_files = [f for f in os.listdir(self.config.OUTPUT_DIR) 
-                           if f.endswith('.wav')]
-                if wav_files:
-                    latest_wav = max(wav_files, 
-                                   key=lambda x: os.path.getctime(
-                                       os.path.join(self.config.OUTPUT_DIR, x)))
-                    full_path = os.path.join(self.config.OUTPUT_DIR, latest_wav)
-                    self.logger.info(f"Found alternative audio file: {full_path}")
-                    return full_path
+                except yt_dlp.utils.DownloadError as e:
+                    self.logger.error(f"YouTube download error: {str(e)}")
+                    if "Video unavailable" in str(e):
+                        self.logger.error("The video is not available or is private")
+                    elif "Sign in" in str(e):
+                        self.logger.error("This video requires authentication")
+                    return None
 
-                self.logger.error("Could not find downloaded WAV file")
-                return None
+            self.logger.error("Could not find downloaded WAV file")
+            return None
 
         except Exception as e:
             self.logger.error(f"Download error: {str(e)}")
             self.logger.error(traceback.format_exc())
             return None
-
 class YouTubeTranscriber:
     def __init__(self, config: Config):
         self.config = config
